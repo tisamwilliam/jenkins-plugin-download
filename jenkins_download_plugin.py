@@ -30,6 +30,7 @@ class download_prepare():
         self.update_jenkins_version = script_varible["update_jenkins_version"]
         self.temp_download_folder = script_varible["temp_download_folder"]
         self.internet_proxy = script_varible["internet_proxy"]
+        self.quay_jenkins_version = script_varible["quay_jenkins_version"]
 
     def check_update_version_is_avaliable(self):
         update_server_available_version = eval(re.get("https://updates.jenkins.io/tiers.json", proxies=self.internet_proxy).text)
@@ -158,8 +159,14 @@ class action_on_nexus(download_jenkins_plugin):
         self.nexus_jenkins_repository = nexus_connect_info["nexus_jenkins_repository"]
         self.nexus_component_api = f"{self.nexus_server}/service/rest/v1/components"
 
-    def get_current_version_jenkins_plugin_list(self):
-        return re.get(f"http://{self.nexus_server}/repository/{self.nexus_jenkins_repository}/v{self.update_jenkins_version}/plugin_list.txt").text.split("\n")
+    def get_both_jenkins_version_plugin_list(self):
+        image_source_code_github_url = f"https://raw.githubusercontent.com/openshift/jenkins/release-{self.quay_jenkins_version}/2/contrib/openshift/bundle-plugins.txt"
+        image_plugin_list_file = re.get(image_source_code_github_url, proxies=self.internet_proxy).text.strip().split("\n")
+        image_plugin_list = [plugin_name.split(":")[0] for plugin_name in image_plugin_list_file if "#" not in plugin_name]
+        
+        current_version_plugin_list = re.get(f"http://{self.nexus_server}/repository/{self.nexus_jenkins_repository}/v{self.update_jenkins_version}/plugin_list.txt").text.split("\n")
+
+        return list(set(image_plugin_list).union(current_version_plugin_list))
 
     @update_and_retry(retry_times=5, delay_time=0)
     def upload_to_nexus(self, upload_plugin_list):
@@ -229,6 +236,7 @@ if __name__ == '__main__':
     script_varible = {
         "update_jenkins_version": sys.argv[1],
         "temp_download_folder": f"./jenkins_{sys.argv[1]}_plugin",
+        "quay_jenkins_version": "4.13",
         "internet_proxy": {"https": "192.168.50.98:3128"}
     }
 
@@ -248,7 +256,7 @@ if __name__ == '__main__':
     download_jenkins_plugin_class = download_jenkins_plugin(update_plugin_dependent_json)
     action_on_nexus_class = action_on_nexus(nexus_connect_info)
     
-    current_plugin_list = action_on_nexus_class.get_current_version_jenkins_plugin_list()
+    current_plugin_list = action_on_nexus_class.get_both_jenkins_version_plugin_list()
 
     # Update download plugin list
     _, update_plugin_list = download_prepare_class.update_dependency_plugin(current_plugin_list)
