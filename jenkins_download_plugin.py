@@ -291,7 +291,7 @@ if __name__ == '__main__':
         "nexus_jenkins_repository": "jenkins-plugin"
     }
 
-    # Jenkins version check and environment prepare
+    # Jenkins版本檢查與取得套件清單
     download_prepare_class = download_prepare(script_varible)
 
     jenkins_maintain_cycle_version = download_prepare_class.check_update_version_is_avaliable()
@@ -303,11 +303,11 @@ if __name__ == '__main__':
     
     current_plugin_list = action_on_nexus_class.get_both_jenkins_version_plugin_list()
 
-    # Update download plugin list
+    # 更新套件依賴項
     _, update_plugin_list = download_prepare_class.update_dependency_plugin(current_plugin_list)
 
-    # Download jenkins plugin and fail retry
+    # 下載Jenkins套件與失敗重試
     upload_plugin_list = download_jenkins_plugin_class.plugin_download_control(update_plugin_list)
 
-    # Upload jenkins plugin to nexus
+    # 上傳套件到Nexus
     action_on_nexus_class.upload_to_nexus(upload_plugin_list)
