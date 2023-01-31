@@ -26,6 +26,9 @@ def update_and_retry(retry_times, delay_time):
     return retry_func
 
 class download_prepare():
+    """
+        腳本執行環境檢查、Jenkins版本檢查與套件依賴更新
+    """
     def __init__(self, script_varible):
         self.update_jenkins_version = script_varible["update_jenkins_version"]
         self.temp_download_folder = script_varible["temp_download_folder"]
@@ -33,6 +36,9 @@ class download_prepare():
         self.quay_jenkins_version = script_varible["quay_jenkins_version"]
 
     def check_update_version_is_avaliable(self):
+        """
+            取得在Jenkins Update Server可以更新的版本, 根據穩定版本(stableCore)與每周更新版本(weeklyCore)加入dynamic-stable與dynamic前綴
+        """
         update_server_available_version = eval(re.get("https://updates.jenkins.io/tiers.json", proxies=self.internet_proxy).text)
 
         if self.update_jenkins_version in update_server_available_version["stableCores"]:
@@ -46,6 +52,9 @@ class download_prepare():
             sys.exit()
 
     def get_update_version_dependent_plugin_list(self, jenkins_maintain_cycle_version):
+        """
+            從Jenkins Update Server取得指定版本的最新套件與依賴套件
+        """
         plugin_depend_url = f"https://updates.jenkins.io/{jenkins_maintain_cycle_version}/update-center.actual.json"
         self.update_plugin_dependent_json = json.loads(re.get(plugin_depend_url, proxies=self.internet_proxy).text)
 
@@ -57,6 +66,10 @@ class download_prepare():
 
     @update_and_retry(retry_times=5, delay_time=0)
     def update_dependency_plugin(self, update_plugin_list):
+        """
+            檢查套件是否被棄用,並新增套件的依賴套件
+            根據return boolen觸發update_and_retry重複執行,直到沒有新增依賴套件
+        """
         plugin_len = len(update_plugin_list)
         tmp_update_plugin_list = update_plugin_list.copy()
 
@@ -83,11 +96,18 @@ class download_prepare():
 
 
 class download_jenkins_plugin(download_prepare):
+    """
+        下載套件與檢查套件雜湊值
+    """
     def __init__(self, update_plugin_dependent_json):
         super(download_jenkins_plugin, self).__init__(script_varible)
         self.update_plugin_dependent_json = update_plugin_dependent_json
 
     def plugin_download_control(self, update_plugin_list):
+        """
+            套件下載流程控制,呼叫下載套件與檢查雜湊值的功能
+            只回傳有成功下載的清單供Nexus上傳
+        """
         download_retry_list = update_plugin_list.copy()
 
         for loop_index, plugin_name in enumerate(update_plugin_list):
@@ -110,6 +130,10 @@ class download_jenkins_plugin(download_prepare):
 
     @update_and_retry(retry_times=5, delay_time=5)
     def download_retry(self, plugin_info_dict):
+        """
+            檔案下載,並呼叫雜湊值檢查
+            如未通過會透過return boolen觸發update_and_retry重新下載並再次檢查
+        """
         dowload_plugin_file = re.get(plugin_info_dict["plugin_download_url"], proxies=self.internet_proxy)
 
         with open(plugin_info_dict["plugin_save_path"], "wb") as plugin_file:    
@@ -122,6 +146,10 @@ class download_jenkins_plugin(download_prepare):
             return False, plugin_info_dict
 
     def get_plugin_info(self, plugin_name):
+        """
+            根據套件名稱回傳基本資訊,包含套件名稱,下載位置,儲存位置,雜湊值
+            來源為Jenkins Update Server提供的Plugin Json
+        """
         plugin_info_dict = {
             "plugin_name": plugin_name,
             "plugin_download_url": self.update_plugin_dependent_json["plugins"][plugin_name]["url"],
@@ -152,6 +180,9 @@ class download_jenkins_plugin(download_prepare):
         return file_sha256
 
 class action_on_nexus(download_jenkins_plugin):
+    """
+        套件上傳Nexus與雜湊值檢查
+    """
     def __init__(self, nexus_connect_info):
         super(action_on_nexus, self).__init__(script_varible)
         self.nexus_server = nexus_connect_info["nexus_server"]
@@ -160,6 +191,10 @@ class action_on_nexus(download_jenkins_plugin):
         self.nexus_component_api = f"{self.nexus_server}/service/rest/v1/components"
 
     def get_both_jenkins_version_plugin_list(self):
+        """
+            到Nexus抓取現有Jenkins套件清單,和到Github抓取目標更新版本套件清單
+            新舊版本套件清單做聯集
+        """
         image_source_code_github_url = f"https://raw.githubusercontent.com/openshift/jenkins/release-{self.quay_jenkins_version}/2/contrib/openshift/bundle-plugins.txt"
         image_plugin_list_file = re.get(image_source_code_github_url, proxies=self.internet_proxy).text.strip().split("\n")
         image_plugin_list = [plugin_name.split(":")[0] for plugin_name in image_plugin_list_file if "#" not in plugin_name]
@@ -170,6 +205,10 @@ class action_on_nexus(download_jenkins_plugin):
 
     @update_and_retry(retry_times=5, delay_time=0)
     def upload_to_nexus(self, upload_plugin_list):
+        """
+            將套件上傳到Nexus,完成後呼叫檢查Nexus雜湊值功能
+            如有檢查失敗會將失敗清單重新帶入本功能再次上傳,重複次數根據update_and_retry參數
+        """
         upload_plugin_list_len = len(upload_plugin_list)
 
         for loop_index, plugin_name in enumerate(upload_plugin_list):
@@ -201,6 +240,9 @@ class action_on_nexus(download_jenkins_plugin):
             return True, upload_plugin_list
 
     def check_upload_checksum(self, upload_plugin_list):
+        """
+            取得Nexus API回傳資訊,比對上傳Nexus套件與Python下載套件的雜湊值
+        """
         artifact_list = self.get_nexus_artifact()
         temp_upload_plugin_list = upload_plugin_list.copy()
 
@@ -216,6 +258,9 @@ class action_on_nexus(download_jenkins_plugin):
         return temp_upload_plugin_list
 
     def get_nexus_artifact(self):
+        """
+            呼叫Nexus API取得已上傳套件的名稱與雜湊值
+        """
         artifact_list = list()
         nexus_jenkins_repo_url = f"http://{self.nexus_component_api}?repository={self.nexus_jenkins_repository}"
 
