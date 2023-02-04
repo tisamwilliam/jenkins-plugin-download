@@ -1,10 +1,10 @@
-﻿$bastion_ip_address="192.168.50.99"
-$mac_ip_address="10.250.75.137"
+﻿$bastion_ip_address = "192.168.50.99"
+$mac_ip_address = "10.250.75.137"
 
-$ocp_api_url="https://api.ocp.olg.online.com:6443"
+$ocp_api_url = "https://api.ocp.olg.online.com:6443"
 
-$jenkins_url="jenkins-jenkins-pv05.apps.ocp.olg.online.com"
-$jenkins_version="2.361.2"
+$jenkins_url = "jenkins-jenkins-pv05.apps.ocp.olg.online.com"
+$jenkins_version = "2.361.2"
 
 # 取得Bastion主機與Openshift的帳號密碼
 $bastion_cred = Get-Credential -Message "請輸入Bastion主機 登入帳號/密碼"

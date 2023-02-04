@@ -234,7 +234,7 @@ class action_on_nexus(download_jenkins_plugin):
         image_plugin_list_file = re.get(image_source_code_github_url, proxies=self.internet_proxy, verify=False).text.strip().split("\n")
         image_plugin_list = [plugin_name.split(":")[0] for plugin_name in image_plugin_list_file if "#" not in plugin_name]
         
-        current_version_json_content = json.load(open("./jenkins_plugin_list.json", 'r', encoding="utf-16"))
+        current_version_json_content = json.load(open(os.path.join(sys.path[0], "./jenkins_plugin_list.json"), 'r', encoding="utf-16"))
         current_version_plugin_list = [ plugin_item["shortName"] for plugin_item in current_version_json_content["plugins"] ]
 
         return list(set(image_plugin_list).union(current_version_plugin_list))
@@ -316,7 +316,7 @@ class action_on_nexus(download_jenkins_plugin):
 if __name__ == '__main__':
     script_varible = {
         "update_jenkins_version": sys.argv[1],
-        "temp_download_folder": f"./jenkins_{sys.argv[1]}_plugin",
+        "temp_download_folder": os.path.join(sys.path[0], f"/jenkins_{sys.argv[1]}_plugin"),
         "quay_jenkins_version": "4.13",
         "internet_proxy": {"https": "192.168.50.98:3128"},
     }
