@@ -18,7 +18,7 @@ def syslog_config():
     formatter = logging.Formatter(fmt="%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s",
                                   datefmt='%Y-%m-%d %H:%M:%S')
     
-    syslog_handler = logging.FileHandler("jenkins_download_plugin.log", mode="a")
+    syslog_handler = logging.FileHandler(os.path.join(sys.path[0],"jenkins_download_plugin.log"), mode="a")
     syslog_handler.setFormatter(formatter)
     
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -45,11 +45,18 @@ def update_and_retry(retry_times, delay_time):
     return retry_func
 
 def summary_output(update_plugin_list, upload_plugin_list, upload_fail_plugin_list):
+    """
+        彙總執行結果
+        如果有下載或上傳失敗會以系統失敗結束腳本,提供外部shell script做判斷
+    """
     logger.info("=====================================================================")
     logger.info(f"更新依賴套件後須下載數量: {len(update_plugin_list)}")
     logger.info(f"套件下載成功數量: {len(upload_plugin_list)}, 下載失敗數量: {len(update_plugin_list)-len(upload_plugin_list)}")
     logger.info(f"套件上傳成功數量: {len(upload_plugin_list)-len(upload_fail_plugin_list)}, 上傳失敗數量: {len(upload_fail_plugin_list)}")
     logger.info("=====================================================================")  
+    
+    if len(update_plugin_list)-len(upload_plugin_list) or len(upload_fail_plugin_list):
+        sys.exit(1)
 
 class download_prepare():
     """
@@ -84,7 +91,7 @@ class download_prepare():
         plugin_depend_url = f"https://updates.jenkins.io/{jenkins_maintain_cycle_version}/update-center.actual.json"
 
         self.update_plugin_dependent_json = json.loads(re.get(plugin_depend_url, proxies=self.internet_proxy, verify=False).text)
-
+        
         return self.update_plugin_dependent_json
 
     def check_dest_folder_ready(self):
@@ -224,6 +231,7 @@ class action_on_nexus(download_jenkins_plugin):
         self.nexus_auth = nexus_connect_info["nexus_auth"]
         self.nexus_jenkins_repository = nexus_connect_info["nexus_jenkins_repository"]
         self.nexus_component_api = f"{self.nexus_server}/service/rest/v1/components"
+        self.jenkins_maintain_cycle_version = nexus_connect_info["jenkins_maintain_cycle_version"]
 
     def get_both_jenkins_version_plugin_list(self):
         """
@@ -234,7 +242,7 @@ class action_on_nexus(download_jenkins_plugin):
         image_plugin_list_file = re.get(image_source_code_github_url, proxies=self.internet_proxy, verify=False).text.strip().split("\n")
         image_plugin_list = [plugin_name.split(":")[0] for plugin_name in image_plugin_list_file if "#" not in plugin_name]
         
-        current_version_json_content = json.load(open(os.path.join(sys.path[0], "./jenkins_plugin_list.json"), 'r', encoding="utf-16"))
+        current_version_json_content = json.load(open(os.path.join(sys.path[0], "jenkins_plugin_list.json"), 'r', encoding="utf-16"))
         current_version_plugin_list = [ plugin_item["shortName"] for plugin_item in current_version_json_content["plugins"] ]
 
         return list(set(image_plugin_list).union(current_version_plugin_list))
@@ -250,7 +258,7 @@ class action_on_nexus(download_jenkins_plugin):
         for loop_index, plugin_name in enumerate(upload_plugin_list):
             params = (("repository", self.nexus_jenkins_repository),)
             data = {
-                "raw.directory": f"/containerd-ci/{jenkins_maintain_cycle_version}",
+                "raw.directory": f"/containerd-cicd/{self.jenkins_maintain_cycle_version}",
                 "raw.asset1.filename ": f"{plugin_name}.hpi"
             }
             files = {
@@ -268,18 +276,18 @@ class action_on_nexus(download_jenkins_plugin):
             except Exception as e:
                 logger.warning(f"[Upload Failed] {plugin_name}, error message: {e}")
 
-        upload_plugin_list = self.check_upload_checksum(upload_plugin_list)
+        upload_plugin_list = self.check_upload_checksum(upload_plugin_list, data["raw.directory"])
 
         if len(upload_plugin_list):
             return False, upload_plugin_list
         else:
             return True, upload_plugin_list
 
-    def check_upload_checksum(self, upload_plugin_list):
+    def check_upload_checksum(self, upload_plugin_list, nexus_group):
         """
             取得Nexus API回傳資訊,比對上傳Nexus套件與Python下載套件的雜湊值
         """
-        artifact_list = self.get_nexus_artifact()
+        artifact_list = self.get_nexus_artifact(nexus_group)
         temp_upload_plugin_list = upload_plugin_list.copy()
 
         for loop_index, nexus_artifact in enumerate(artifact_list):
@@ -293,7 +301,7 @@ class action_on_nexus(download_jenkins_plugin):
             
         return temp_upload_plugin_list
 
-    def get_nexus_artifact(self):
+    def get_nexus_artifact(self, nexus_group):
         """
             呼叫Nexus API取得已上傳套件的名稱與雜湊值
         """
@@ -308,7 +316,7 @@ class action_on_nexus(download_jenkins_plugin):
             artifact_list += nexus_artifact_response["items"]
 
         for nexus_artifact in artifact_list:
-            if nexus_artifact["group"] != f"/v{self.update_jenkins_version}" or "hpi" not in nexus_artifact["name"]:
+            if nexus_artifact["group"] != nexus_group or "hpi" not in nexus_artifact["name"]:
                 artifact_list.remove(nexus_artifact)
 
         return artifact_list
@@ -316,7 +324,7 @@ class action_on_nexus(download_jenkins_plugin):
 if __name__ == '__main__':
     script_varible = {
         "update_jenkins_version": sys.argv[1],
-        "temp_download_folder": os.path.join(sys.path[0], f"/jenkins_{sys.argv[1]}_plugin"),
+        "temp_download_folder": os.path.join(sys.path[0], f"jenkins_{sys.argv[1]}_plugin"),
         "quay_jenkins_version": "4.13",
         "internet_proxy": {"https": "192.168.50.98:3128"},
     }
@@ -338,6 +346,7 @@ if __name__ == '__main__':
     update_plugin_dependent_json = download_prepare_class.get_update_version_dependent_plugin_list(jenkins_maintain_cycle_version)
 
     download_jenkins_plugin_class = download_jenkins_plugin(update_plugin_dependent_json)
+    nexus_connect_info["jenkins_maintain_cycle_version"] = jenkins_maintain_cycle_version
     action_on_nexus_class = action_on_nexus(nexus_connect_info)
     
     current_plugin_list = action_on_nexus_class.get_both_jenkins_version_plugin_list()
@@ -349,7 +358,7 @@ if __name__ == '__main__':
     upload_plugin_list = download_jenkins_plugin_class.plugin_download_control(update_plugin_list)
 
     # 上傳套件到Nexus
-    _, upload_fail_plugin_list = action_on_nexus_class.upload_to_nexus(upload_plugin_list, jenkins_maintain_cycle_version)
+    _, upload_fail_plugin_list = action_on_nexus_class.upload_to_nexus(upload_plugin_list)
     
     # 執行結果輸出
     summary_output(update_plugin_list, upload_plugin_list, upload_fail_plugin_list)

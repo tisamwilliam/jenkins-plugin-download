@@ -22,11 +22,12 @@ Invoke-Expression "$bastion_remote_control 'curl --header \`"Authorization: Bear
 Write-Output "`n[Mac Server]傳送套件清單到Mac主機"
 $mac_cred = Get-Credential -Message "請輸入Mac主機 登入帳號/密碼"
 $mac_remote_control = "plink -no-antispoof -pw $($mac_cred.GetNetworkCredential().Password) -l $($mac_cred.UserName) $($mac_ip_address)"
+$containerd_cicd_tool_path = "/home/$($mac_cred.UserName)/jenkins-plugin-download"
 
-pscp -l $mac_cred.UserName -pw $mac_cred.GetNetworkCredential().Password  jenkins_plugin_list.json ${mac_ip_address}:"/home/$($mac_cred.UserName)/jenkins-plugin-download"
+pscp -l $mac_cred.UserName -pw $mac_cred.GetNetworkCredential().Password  jenkins_plugin_list.json ${mac_ip_address}:"$containerd_cicd_tool_path"
 
 Write-Output "`n[Mac Server]從Git更新Python腳本"
-Invoke-Expression "$mac_remote_control 'cd /home/$($mac_cred.UserName)/jenkins-plugin-download; git pull'"
+Invoke-Expression "$mac_remote_control 'cd $containerd_cicd_tool_path; git pull'"
 
 Write-Output "`n[Mac Server]執行Python腳本下載套件"
-Invoke-Expression "$mac_remote_control 'python3 /home/$($mac_cred.UserName)/jenkins-plugin-download/jenkins_download_plugin.py ${jenkins_version}'"
+Invoke-Expression "$mac_remote_control 'bash $containerd_cicd_tool_path/execute_python_script.sh $containerd_cicd_tool_path $jenkins_version'"
