@@ -82,6 +82,7 @@ class download_prepare():
             從Jenkins Update Server取得指定版本的最新套件與依賴套件
         """
         plugin_depend_url = f"https://updates.jenkins.io/{jenkins_maintain_cycle_version}/update-center.actual.json"
+
         self.update_plugin_dependent_json = json.loads(re.get(plugin_depend_url, proxies=self.internet_proxy, verify=False).text)
 
         return self.update_plugin_dependent_json
@@ -99,19 +100,27 @@ class download_prepare():
         plugin_len = len(update_plugin_list)
         tmp_update_plugin_list = update_plugin_list.copy()
 
+        deprecations_list = list(self.update_plugin_dependent_json['deprecations'].keys())
+        deorecation_plugin_need_list = list()
+
         for plugin_name in update_plugin_list:
             try:
-                if plugin_name in self.update_plugin_dependent_json['deprecations']:
-                    tmp_update_plugin_list.remove(plugin_name)
-                    logger.warning(f"[Deprecation Plugin] {plugin_name} ")
-                    continue
-
                 for dependency_item in self.update_plugin_dependent_json["plugins"][plugin_name]["dependencies"]:
                     if not dependency_item['optional'] and dependency_item['name'] not in update_plugin_list:
                         tmp_update_plugin_list.append(dependency_item['name'])
-                        logger.info(f"[New Plugin] plugin: {plugin_name} / dependent plugin: {dependency_item['name']}")
+                        logger.info(f"[New Plugin] plugin: '{plugin_name}' need dependency plugin: '{dependency_item['name']}'")
+                        
+                    if dependency_item['name'] in deprecations_list:
+                        deorecation_plugin_need_list.append(dependency_item['name'])
+                        logger.warning(f"[Ready For Deprecation] '{dependency_item['name']}' is in deprecation list, but it's still use by '{plugin_name}'")
             except Exception as e:
                 logger.warning(f"[Plugin Not Found] {plugin_name} is not avaliable to download, error message: {e}")
+                tmp_update_plugin_list.remove(plugin_name)
+
+        for plugin_name in update_plugin_list:
+            if plugin_name in self.update_plugin_dependent_json['deprecations'] and plugin_name not in deorecation_plugin_need_list:
+                tmp_update_plugin_list.remove(plugin_name)
+                logger.warning(f"[Deprecation Plugin] {plugin_name}")
 
         tmp_update_plugin_list = list(set(tmp_update_plugin_list))
 
@@ -216,7 +225,7 @@ class action_on_nexus(download_jenkins_plugin):
         self.nexus_jenkins_repository = nexus_connect_info["nexus_jenkins_repository"]
         self.nexus_component_api = f"{self.nexus_server}/service/rest/v1/components"
 
-    def get_both_jenkins_version_plugin_list(self, jenkins_maintain_cycle_version):
+    def get_both_jenkins_version_plugin_list(self):
         """
             到Nexus抓取現有Jenkins套件清單,和到Github抓取目標更新版本套件清單
             新舊版本套件清單做聯集
@@ -225,7 +234,8 @@ class action_on_nexus(download_jenkins_plugin):
         image_plugin_list_file = re.get(image_source_code_github_url, proxies=self.internet_proxy, verify=False).text.strip().split("\n")
         image_plugin_list = [plugin_name.split(":")[0] for plugin_name in image_plugin_list_file if "#" not in plugin_name]
         
-        current_version_plugin_list = re.get(f"http://{self.nexus_server}/repository/{self.nexus_jenkins_repository}/containerd-ci/2.235.3/plugin_list.txt", verify=False).text.split("\n")
+        current_version_json_content = json.load(open("./jenkins_plugin_list.json", 'r', encoding="utf-16"))
+        current_version_plugin_list = [ plugin_item["shortName"] for plugin_item in current_version_json_content["plugins"] ]
 
         return list(set(image_plugin_list).union(current_version_plugin_list))
 
