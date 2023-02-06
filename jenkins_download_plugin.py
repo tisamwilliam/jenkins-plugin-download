@@ -242,7 +242,7 @@ class action_on_nexus(download_jenkins_plugin):
         image_plugin_list_file = re.get(image_source_code_github_url, proxies=self.internet_proxy, verify=False).text.strip().split("\n")
         image_plugin_list = [plugin_name.split(":")[0] for plugin_name in image_plugin_list_file if "#" not in plugin_name]
         
-        current_version_json_content = json.load(open(os.path.join(sys.path[0], "jenkins_plugin_list.json"), 'r', encoding="utf-16"))
+        current_version_json_content = json.load(open(os.path.join(sys.path[0], "jenkins_plugin_list.json"), "r", encoding="utf-8"))
         current_version_plugin_list = [ plugin_item["shortName"] for plugin_item in current_version_json_content["plugins"] ]
 
         return list(set(image_plugin_list).union(current_version_plugin_list))
@@ -320,6 +320,29 @@ class action_on_nexus(download_jenkins_plugin):
                 artifact_list.remove(nexus_artifact)
 
         return artifact_list
+    
+    def update_plugin_list(self, upload_plugin_list, upload_fail_plugin_list):
+        """
+            將有上傳成功的套件清單上傳到Nexus
+            提供Jenkins初始化階段PV抓取套件
+        """
+        upload_success_plugin_list = list(set(upload_plugin_list)-set(upload_fail_plugin_list))
+        
+        with open(f"{self.temp_download_folder}/plugin_list.txt", "w") as plugin_list_file:
+            for plugin_name in upload_success_plugin_list:
+                plugin_list_file.write(f"{plugin_name}\n")
+        
+        params = (("repository", self.nexus_jenkins_repository),)
+        data = {
+            "raw.directory": f"/containerd-cicd/{self.jenkins_maintain_cycle_version}/metadata",
+            "raw.asset1.filename ": f"plugin_list.txt"
+        }
+        files = {
+            "raw.asset1": (f"plugin_list.txt", open(f"{self.temp_download_folder}/plugin_list.txt" , "rb" ))
+        }
+        
+        re.post(f"http://{self.nexus_component_api}", params=params, data=data, files=files, auth=self.nexus_auth)
+
 
 if __name__ == '__main__':
     script_varible = {
@@ -359,6 +382,9 @@ if __name__ == '__main__':
 
     # 上傳套件到Nexus
     _, upload_fail_plugin_list = action_on_nexus_class.upload_to_nexus(upload_plugin_list)
+    
+    # 上傳套件清單到Nexus
+    action_on_nexus_class.update_plugin_list(upload_plugin_list, upload_fail_plugin_list)
     
     # 執行結果輸出
     summary_output(update_plugin_list, upload_plugin_list, upload_fail_plugin_list)
