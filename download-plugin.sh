@@ -6,5 +6,5 @@ curl ${nexus_repo_path}/metadata/plugin_list.txt -o plugin_list.txt
 
 for plugin_name in $(cat plugin_list.txt)
 do
-    curl ${nexus_repo_path}/${plugin_name}.jpi -o ${plugin_name}.jpi
+    curl ${nexus_repo_path}/${plugin_name}.hpi -o ${plugin_name}.jpi
 done
