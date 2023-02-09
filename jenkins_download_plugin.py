@@ -124,10 +124,11 @@ class download_prepare():
                 logger.warning(f"[Plugin Not Found] {plugin_name} is not avaliable to download, error message: {e}")
                 tmp_update_plugin_list.remove(plugin_name)
 
-        for plugin_name in update_plugin_list:
+        for plugin_name in tmp_update_plugin_list:
             if plugin_name in self.update_plugin_dependent_json['deprecations'] and plugin_name not in deorecation_plugin_need_list:
-                tmp_update_plugin_list.remove(plugin_name)
                 logger.warning(f"[Deprecation Plugin] {plugin_name}")
+                tmp_update_plugin_list.remove(plugin_name)
+                
 
         tmp_update_plugin_list = list(set(tmp_update_plugin_list))
 
@@ -157,6 +158,7 @@ class download_jenkins_plugin(download_prepare):
 
             if os.path.isfile(plugin_info_dict["plugin_save_path"]) and self.check_sha256(plugin_info_dict["plugin_save_path"], plugin_info_dict["plugin_sha256"]):
                 download_retry_list.remove(plugin_name)
+                logger.warning(f"[Download Skip] {plugin_info_dict['plugin_name']} has been downloaded")
                 continue
 
             try:
@@ -194,7 +196,7 @@ class download_jenkins_plugin(download_prepare):
         """
         plugin_info_dict = {
             "plugin_name": plugin_name,
-            "plugin_download_url": self.update_plugin_dependent_json["plugins"][plugin_name]["url"],
+            "plugin_download_url": self.update_plugin_dependent_json["plugins"][plugin_name]["url"].replace("updates.jenkins.io/download","sg.mirror.servanamanaged.com/jenkins"),
             "plugin_save_path": f"{self.temp_download_folder}/{plugin_name}.hpi",
             "plugin_sha256": base64.decodebytes(self.update_plugin_dependent_json["plugins"][plugin_name]["sha256"].encode('utf-8'))
         }
