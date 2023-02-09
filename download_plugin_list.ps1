@@ -22,13 +22,14 @@ Invoke-Expression "$bastion_remote_control 'curl --header \`"Authorization: Bear
 
 Write-Output "`n[Mac Server] Send Jenkins package list to Mac server"
 $mac_remote_control = "ssh $mac_username@$mac_ip_address"
-$containerd_cicd_tool_path = "/home/$($mac_username)/jenkins-plugin-download"
+$containerd_cicd_tool_path = "/home/$($mac_username)/splunk_upgrade_automation"
 
 Invoke-Expression "scp jenkins_plugin_list_utf16.json $($mac_username)@$($mac_ip_address):$containerd_cicd_tool_path"
 
 $gitlab_cred = Get-Credential -Message "Gitlab Username/Password:"
+$gitlab_cred_password = $gitlab_cred.GetNetworkCredential().Password.replace("@","%40")
 Write-Output "`n[Mac Server] Git pull"
-Invoke-Expression "$mac_remote_control 'cd $containerd_cicd_tool_path; git pull https://$($gitlab_cred.Username):$($gitlab_cred.GetNetworkCredential().Password)@gitlab.com/upgrade_splunk_automation/splunk_upgrade_automation.git'"
+Invoke-Expression "$mac_remote_control 'cd $containerd_cicd_tool_path; git pull https://$($gitlab_cred.UserName):$($gitlab_cred_password)@gitlab.com/upgrade_splunk_automation/splunk_upgrade_automation.git'"
 
 Write-Output "`n[Mac Server] Execute Python script"
 Invoke-Expression "$mac_remote_control 'bash $containerd_cicd_tool_path/execute_python_script.sh $containerd_cicd_tool_path $jenkins_version'"

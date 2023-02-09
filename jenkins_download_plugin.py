@@ -158,7 +158,7 @@ class download_jenkins_plugin(download_prepare):
 
             if os.path.isfile(plugin_info_dict["plugin_save_path"]) and self.check_sha256(plugin_info_dict["plugin_save_path"], plugin_info_dict["plugin_sha256"]):
                 download_retry_list.remove(plugin_name)
-                logger.warning(f"[Download Skip] {plugin_info_dict['plugin_name']} has been downloaded")
+                logger.info(f"[Download Skip] {loop_index+1}/{len(update_plugin_list)} {plugin_info_dict['plugin_name']} has been downloaded")
                 continue
 
             try:
