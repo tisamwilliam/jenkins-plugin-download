@@ -5,6 +5,7 @@ import json
 import base64
 import logging
 import hashlib
+import traceback
 import requests as re
 from urllib3.exceptions import InsecureRequestWarning
 
@@ -24,7 +25,7 @@ def syslog_config():
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(formatter)
     
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     
     logger.addHandler(syslog_handler)
@@ -121,7 +122,8 @@ class download_prepare():
                         deorecation_plugin_need_list.append(dependency_item['name'])
                         logger.warning(f"[Ready For Deprecation] '{dependency_item['name']}' is in deprecation list, but it's still use by '{plugin_name}'")
             except Exception as e:
-                logger.warning(f"[Plugin Not Found] {plugin_name} is not avaliable to download, error message: {e}")
+                logger.warning(f"[Plugin Not Found] {plugin_name} is not avaliable to download")
+                logger.exception(e)
                 tmp_update_plugin_list.remove(plugin_name)
 
         for plugin_name in tmp_update_plugin_list:
@@ -162,32 +164,65 @@ class download_jenkins_plugin(download_prepare):
                 continue
 
             try:
-                finish_download, _ = self.download_retry(plugin_info_dict)
+                finish_download = self.separate_download(plugin_info_dict)
 
                 if finish_download:
                     download_retry_list.remove(plugin_name)
                     logger.info(f"[Download Success] {loop_index+1}/{len(update_plugin_list)} {plugin_info_dict['plugin_name']}")
             except Exception as e:
-                logger.warning(f"[Download Failed] {plugin_name}, error message: {e}")
+                logger.warning(f"[Download Failed] {plugin_name}")
+                logger.exception(e)
 
         return list(set(update_plugin_list) - set(download_retry_list))
 
+    def separate_download(self, plugin_info_dict):
+        """
+            從Update Server取得套件大小,以1Mib做切割
+            用Header帶入參數給download retry執行
+        """
+        file_batch_size_range = list()
+        end_byte = -1
+        
+        while end_byte < plugin_info_dict["plugin_size"]:
+            if end_byte+plugin_info_dict["download_chuck_size"] < plugin_info_dict["plugin_size"]:
+                file_batch_size_range.append([end_byte+1, end_byte+plugin_info_dict["download_chuck_size"]+1])
+                end_byte = end_byte+plugin_info_dict["download_chuck_size"]+1
+            else:
+                file_batch_size_range.append([end_byte+1, plugin_info_dict["plugin_size"]])
+                end_byte = plugin_info_dict["plugin_size"]
+                
+        with open(plugin_info_dict["plugin_save_path"], "wb") as f:
+            pass  
+        
+        for loop_index, download_range_list in enumerate(file_batch_size_range):
+            
+            headers = {"Range": f"bytes={download_range_list[0]}-{download_range_list[1]}"}
+            plugin_info_dict["headers"] = headers
+            
+            check_status = self.download_retry(plugin_info_dict)
+            
+            if check_status:
+                logger.info(f"[Partial Download Success({loop_index+1}/{len(file_batch_size_range)})] {plugin_info_dict['plugin_name']}")
+            
+        if self.check_sha256(plugin_info_dict["plugin_save_path"], plugin_info_dict["plugin_sha256"]):
+            return True
+        return False
+    
     @update_and_retry(retry_times=5, delay_time=5)
     def download_retry(self, plugin_info_dict):
         """
             檔案下載,並呼叫雜湊值檢查
             如未通過會透過return boolen觸發update_and_retry重新下載並再次檢查
         """
-        dowload_plugin_file = re.get(plugin_info_dict["plugin_download_url"], proxies=self.internet_proxy, verify=False)
+        dowload_plugin_file = re.get(plugin_info_dict["plugin_download_url"], proxies=self.internet_proxy, headers=plugin_info_dict["headers"], verify=False)
 
-        with open(plugin_info_dict["plugin_save_path"], "wb") as plugin_file:    
-            plugin_file.write(dowload_plugin_file.content)
-
-        if self.check_sha256(plugin_info_dict["plugin_save_path"], plugin_info_dict["plugin_sha256"]):
+        if len(dowload_plugin_file.content) == int(dowload_plugin_file.headers["Content-Length"]):  
+            with open(plugin_info_dict["plugin_save_path"], "ab") as plugin_file:    
+                plugin_file.write(dowload_plugin_file.content)
             return True, plugin_info_dict
-        else:
-            logger.warning(f"[Download Retry] {plugin_info_dict['plugin_name']} retry")
-            return False, plugin_info_dict
+        
+        logger.info(f"[Partial Download Retry] {plugin_info_dict['plugin_name']}")
+        return False, plugin_info_dict
 
     def get_plugin_info(self, plugin_name):
         """
@@ -198,6 +233,8 @@ class download_jenkins_plugin(download_prepare):
             "plugin_name": plugin_name,
             "plugin_download_url": self.update_plugin_dependent_json["plugins"][plugin_name]["url"].replace("updates.jenkins.io/download","sg.mirror.servanamanaged.com/jenkins"),
             "plugin_save_path": f"{self.temp_download_folder}/{plugin_name}.hpi",
+            "plugin_size": self.update_plugin_dependent_json["plugins"][plugin_name]["size"],
+            "download_chuck_size": 1048576,
             "plugin_sha256": base64.decodebytes(self.update_plugin_dependent_json["plugins"][plugin_name]["sha256"].encode('utf-8'))
         }
         return plugin_info_dict
@@ -276,7 +313,8 @@ class action_on_nexus(download_jenkins_plugin):
                     logger.warning(f"[Upload Failed] {plugin_name}, with wrong http code")
                     logger.warning(f"[Upload Failed] {upload_response.text}")
             except Exception as e:
-                logger.warning(f"[Upload Failed] {plugin_name}, error message: {e}")
+                logger.warning(f"[Upload Failed] {plugin_name}")
+                logger.exception(e)
 
         upload_plugin_list = self.check_upload_checksum(upload_plugin_list, data["raw.directory"])
 
