@@ -9,6 +9,8 @@ $ocp_api_url = "https://api.ocp.olg.online.com:6443"
 $jenkins_url = "jenkins-jenkins-pv05.apps.ocp.olg.online.com"
 $jenkins_version = "2.361.2"
 
+Add-Type -AssemblyName System.Web
+
 $openshift_cred = Get-Credential -Message "Openshift Username/Password(${ocp_api_url}:)"
 $bastion_remote_control = "ssh $bastion_username@$bastion_ip_address"
 
@@ -23,12 +25,12 @@ Invoke-Expression "$bastion_remote_control 'curl --header \`"Authorization: Bear
 Write-Output "`n[Mac Server] Send Jenkins package list to Mac server"
 $mac_remote_control = "ssh $mac_username@$mac_ip_address"
 $containerd_cicd_tool_path = "/home/$($mac_username)/splunk_upgrade_automation"
-
 Invoke-Expression "scp jenkins_plugin_list_utf16.json $($mac_username)@$($mac_ip_address):$containerd_cicd_tool_path"
 
-$gitlab_cred = Get-Credential -Message "Gitlab Username/Password:"
-$gitlab_cred_password = $gitlab_cred.GetNetworkCredential().Password.replace("@","%40")
 Write-Output "`n[Mac Server] Git pull"
+$gitlab_cred = Get-Credential -Message "Gitlab Username/Password:"
+$gitlab_cred_password =  [System.Web.HttpUtility]::UrlEncode($gitlab_cred.GetNetworkCredential().Password)
+
 Invoke-Expression "$mac_remote_control 'cd $containerd_cicd_tool_path; git pull https://$($gitlab_cred.UserName):$($gitlab_cred_password)@gitlab.com/upgrade_splunk_automation/splunk_upgrade_automation.git'"
 
 Write-Output "`n[Mac Server] Execute Python script"
